@@ -40,7 +40,7 @@ function NewPostPage() {
           size: parseInt(inputs.size),
           school: parseInt(inputs.school),
           bus: parseInt(inputs.bus),
-          restaurant: parseInt(inputs.restaurant),
+          resturant: parseInt(inputs.restaurant),
         },
       })
       navigate("/" + res.data.id)
