@@ -1,5 +1,4 @@
 import prisma from "../lib/prisma.js";
-import jwt from "jsonwebtoken";
 
 export const getPosts = async (req, res) => {
   const query = req.query;
@@ -18,9 +17,7 @@ export const getPosts = async (req, res) => {
       },
     });
 
-    // setTimeout(() => {
     res.status(200).json(posts);
-    // }, 3000);
   } catch (err) {
     console.log(err);
     res.status(500).json({ message: "Failed to get posts" });
@@ -29,11 +26,13 @@ export const getPosts = async (req, res) => {
 
 export const getPost = async (req, res) => {
   const id = req.params.id;
+  const tokenUserId = req.userId;
+
   try {
     const post = await prisma.post.findUnique({
       where: { id },
       include: {
-        PostDetail: true,
+        postDetail: true,
         user: {
           select: {
             username: true,
@@ -43,7 +42,15 @@ export const getPost = async (req, res) => {
       },
     });
 
-    res.status(200).json({ ...post, isSaved: false });
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    const saved = await prisma.savedPost.findUnique({
+      where: { userId_postId: { userId: tokenUserId, postId: id } },
+    });
+
+    res.status(200).json({ ...post, isSaved: Boolean(saved) });
   } catch (err) {
     console.log(err);
     res.status(500).json({ message: "Failed to get post" });
@@ -51,16 +58,16 @@ export const getPost = async (req, res) => {
 };
 
 export const addPost = async (req, res) => {
-  const body = req.body;
+  const { postData, postDetail } = req.body ?? {};
   const tokenUserId = req.userId;
 
   try {
     const newPost = await prisma.post.create({
       data: {
-        ...body.postData,
+        ...postData,
         userId: tokenUserId,
-        PostDetail: {
-          create: body.postDetail,
+        postDetail: {
+          create: postDetail,
         },
       },
     });
@@ -72,8 +79,37 @@ export const addPost = async (req, res) => {
 };
 
 export const updatePost = async (req, res) => {
+  const id = req.params.id;
+  const tokenUserId = req.userId;
+  const { postData, postDetail } = req.body ?? {};
+
   try {
-    res.status(200).json();
+    const post = await prisma.post.findUnique({
+      where: { id },
+    });
+
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    if (post.userId !== tokenUserId) {
+      return res.status(403).json({ message: "Not Authorized!" });
+    }
+
+    const updatedPost = await prisma.post.update({
+      where: { id },
+      data: {
+        ...postData,
+        ...(postDetail && {
+          postDetail: {
+            upsert: { create: postDetail, update: postDetail },
+          },
+        }),
+      },
+      include: { postDetail: true },
+    });
+
+    res.status(200).json(updatedPost);
   } catch (err) {
     console.log(err);
     res.status(500).json({ message: "Failed to update posts" });
@@ -88,6 +124,10 @@ export const deletePost = async (req, res) => {
     const post = await prisma.post.findUnique({
       where: { id },
     });
+
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
 
     if (post.userId !== tokenUserId) {
       return res.status(403).json({ message: "Not Authorized!" });

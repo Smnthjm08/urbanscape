@@ -4,7 +4,7 @@ import prisma from "../lib/prisma.js";
 // import { dotenv } from "dotenv";
 
 export const register = async (req, res) => {
-  const { username, email, password } = req.body;
+  const { username, email, password } = req.body ?? {};
 
   try {
     // Hash password
@@ -21,13 +21,25 @@ export const register = async (req, res) => {
     console.log(newUser);
     res.status(201).json({ message: "User created successfully" });
   } catch (err) {
-    if (
-      err.code === "P2002" &&
-      err.meta &&
-      err.meta.target === "User_email_key"
-    ) {
-      // Unique constraint failed on the email field
-      res.status(409).json({ message: "Email already in use!" });
+    if (err.code === "P2002") {
+      // Prisma 7 driver adapters report the clashing columns here; older
+      // clients used err.meta.target (an array, or the constraint name).
+      const conflict = [
+        err.meta?.driverAdapterError?.cause?.constraint?.fields ??
+          err.meta?.target ??
+          [],
+      ]
+        .flat()
+        .join(" ");
+
+      const field = conflict.includes("email")
+        ? "Email"
+        : conflict.includes("username")
+          ? "Username"
+          : null;
+      res
+        .status(409)
+        .json({ message: field ? `${field} already in use!` : "Already in use!" });
     } else {
       console.log(err);
       res.status(500).json({ message: "Failed to create user!" });
@@ -36,7 +48,7 @@ export const register = async (req, res) => {
 };
 
 export const login = async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password } = req.body ?? {};
 
   try {
     //CHECK IF THE USER EXISTS
@@ -44,25 +56,23 @@ export const login = async (req, res) => {
       where: { username },
     });
     if (!user) {
-      res.status(400).json({ message: "Invalid Credentials!" });
+      return res.status(400).json({ message: "Invalid Credentials!" });
     }
 
     //CHECK IF THE PASSWORD IS CORRECT
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      res.status(400).json({ message: "Invalid Credentials!" });
+      return res.status(400).json({ message: "Invalid Credentials!" });
     }
 
     //GENERATE COOKIE TOKEN AND SEND TO THE USER
     const age = 1000 * 60 * 60 * 24 * 7;
 
     const token = jwt.sign(
-      {
-        id: user.id,
-        isAdmin: false,
-      },
+      { id: user.id },
       process.env.JWT_SECRET_KEY,
-      { expiresIn: age }
+      // jsonwebtoken expects seconds, the cookie maxAge below expects ms
+      { expiresIn: age / 1000 }
     );
     const { password: userPassword, ...userInfo } = user;
 
