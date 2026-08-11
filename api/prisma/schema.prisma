@@ -37,11 +37,20 @@ model Post {
   longitude  String
   type       Type
   property   Property
+  status     PostStatus  @default(active)
+  isFeatured Boolean     @default(false)
   createdAt  DateTime    @default(now())
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId     String
   postDetail PostDetail?
   savedPosts SavedPost[]
+
+  @@index([city])
+  @@index([type])
+  @@index([property])
+  @@index([price])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model SavedPost {
@@ -67,16 +76,24 @@ enum Property {
   land
 }
 
+enum PostStatus {
+  active
+  pending
+  sold
+  rented
+  archived
+}
+
 model PostDetail {
-  id        String  @id @default(uuid())
-  desc      String
-  utilities String?
-  pet       String?
-  income    String?
-  size      Int?
-  school    Int?
-  bus       Int?
-  resturant Int?
-  post      Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
-  postId    String  @unique
+  id         String  @id @default(uuid())
+  desc       String
+  utilities  String?
+  pet        String?
+  income     String?
+  size       Int?
+  school     Int?
+  bus        Int?
+  restaurant Int?
+  post       Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId     String  @unique
 }

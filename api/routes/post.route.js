@@ -1,5 +1,11 @@
 import express from "express";
-import { verifyToken } from "../middleware/verifyToken.js";
+import { verifyToken, verifyTokenOptional } from "../middleware/verifyToken.js";
+import { validate } from "../middleware/validate.js";
+import {
+  createPostSchema,
+  updatePostSchema,
+  getPostsQuerySchema,
+} from "../schemas/post.schema.js";
 import {
   addPost,
   getPost,
@@ -10,10 +16,13 @@ import {
 
 const router = express.Router();
 
-router.get("/", verifyToken, getPosts);
-router.get("/:id", verifyToken, getPost);
-router.post("/", verifyToken, addPost);
-router.put("/:id", verifyToken, updatePost);
+// Public routes (optional auth for save-status awareness)
+router.get("/", validate(getPostsQuerySchema, "query"), getPosts);
+router.get("/:id", verifyTokenOptional, getPost);
+
+// Protected routes
+router.post("/", verifyToken, validate(createPostSchema), addPost);
+router.put("/:id", verifyToken, validate(updatePostSchema), updatePost);
 router.delete("/:id", verifyToken, deletePost);
 
 export default router;

@@ -1,97 +1,81 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import prisma from "../lib/prisma.js";
-// import { dotenv } from "dotenv";
+import { asyncHandler } from "../lib/asyncHandler.js";
+import { AppError } from "../lib/AppError.js";
 
-export const register = async (req, res) => {
-  const { username, email, password } = req.body ?? {};
+export const register = asyncHandler(async (req, res) => {
+  const { username, email, password } = req.body;
 
-  try {
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
+  // Hash password
+  const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create new user
-    const newUser = await prisma.user.create({
-      data: {
-        username,
-        email,
-        password: hashedPassword,
-      },
-    });
-    console.log(newUser);
-    res.status(201).json({ message: "User created successfully" });
-  } catch (err) {
-    if (err.code === "P2002") {
-      // Prisma 7 driver adapters report the clashing columns here; older
-      // clients used err.meta.target (an array, or the constraint name).
-      const conflict = [
-        err.meta?.driverAdapterError?.cause?.constraint?.fields ??
-          err.meta?.target ??
-          [],
-      ]
-        .flat()
-        .join(" ");
+  // Create new user
+  const newUser = await prisma.user.create({
+    data: {
+      username,
+      email,
+      password: hashedPassword,
+    },
+  });
 
-      const field = conflict.includes("email")
-        ? "Email"
-        : conflict.includes("username")
-          ? "Username"
-          : null;
-      res
-        .status(409)
-        .json({ message: field ? `${field} already in use!` : "Already in use!" });
-    } else {
-      console.log(err);
-      res.status(500).json({ message: "Failed to create user!" });
-    }
+  // Prisma P2002 (unique violation) is handled by the global errorHandler
+
+  const { password: _, ...userInfo } = newUser;
+  res.status(201).json({
+    success: true,
+    message: "User created successfully",
+    data: userInfo,
+  });
+});
+
+export const login = asyncHandler(async (req, res) => {
+  const { username, password } = req.body;
+
+  // Check if the user exists
+  const user = await prisma.user.findUnique({
+    where: { username },
+  });
+  if (!user) {
+    throw new AppError(400, "Invalid Credentials!");
   }
-};
 
-export const login = async (req, res) => {
-  const { username, password } = req.body ?? {};
-
-  try {
-    //CHECK IF THE USER EXISTS
-    const user = await prisma.user.findUnique({
-      where: { username },
-    });
-    if (!user) {
-      return res.status(400).json({ message: "Invalid Credentials!" });
-    }
-
-    //CHECK IF THE PASSWORD IS CORRECT
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return res.status(400).json({ message: "Invalid Credentials!" });
-    }
-
-    //GENERATE COOKIE TOKEN AND SEND TO THE USER
-    const age = 1000 * 60 * 60 * 24 * 7;
-
-    const token = jwt.sign(
-      { id: user.id },
-      process.env.JWT_SECRET_KEY,
-      // jsonwebtoken expects seconds, the cookie maxAge below expects ms
-      { expiresIn: age / 1000 }
-    );
-    const { password: userPassword, ...userInfo } = user;
-
-    // res.setHeader("Set-Cookie", "test=" + "myValue").json("success");
-
-    res
-      .cookie("token", token, {
-        httpOnly: true,
-        // secure: true,
-        maxAge: age,
-      })
-      .status(200)
-      .json(userInfo);
-  } catch (err) {
-    console.log(err);
-    res.status(500).json({ message: "Failed to Login!" });
+  // Check if the password is correct
+  const isPasswordValid = await bcrypt.compare(password, user.password);
+  if (!isPasswordValid) {
+    throw new AppError(400, "Invalid Credentials!");
   }
-};
 
-export const logout = (req, res) => {
-  res.clearCookie("token").status(200).json({ message: "Logout Successful" });
+  // Generate cookie token and send to the user
+  const age = 1000 * 60 * 60 * 24 * 7; // 7 days in ms
+
+  const token = jwt.sign(
+    { id: user.id },
+    process.env.JWT_SECRET_KEY,
+    // jsonwebtoken expects seconds, the cookie maxAge below expects ms
+    { expiresIn: age / 1000 }
+  );
+
+  const { password: _, ...userInfo } = user;
+
+  res
+    .cookie("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+      maxAge: age,
+    })
+    .status(200)
+    .json({
+      success: true,
+      message: "Login successful",
+      data: userInfo,
+    });
+});
+
+export const logout = (_req, res) => {
+  res
+    .clearCookie("token")
+    .status(200)
+    .json({ success: true, message: "Logout Successful" });
 };
